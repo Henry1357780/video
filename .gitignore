@@ -1,0 +1,24 @@
+# Секреты
+.env
+.env.*
+
+# Логи рендеров и генерации
+*_log*.txt
+*_err*.txt
+*.log
+
+# Тяжёлые медиа: видео, аудио, кадры
+*.mp4
+*.mov
+*.mp3
+*.wav
+clips/
+output/
+tests/
+frames/*.png
+frames/**/*.png
+episodes/*/frames/**/*.png
+
+# Python
+__pycache__/
+*.pyc

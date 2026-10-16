@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140">
+  <title>Right Direction Consulting</title>
+  <rect width="520" height="140" fill="#FFFFFF"/>
+  <!-- Знак: восходящий путь, который выходит на верный курс -->
+  <g transform="translate(10,10)">
+    <rect x="0" y="0" width="120" height="120" rx="28" fill="#0F2A44"/>
+    <polyline points="28,86 50,64 62,76 90,48" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="68,46 92,46 92,70" fill="none" stroke="#E0A526" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- Надпись -->
+  <text x="152" y="70" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="40" letter-spacing="1" fill="#0F2A44"><tspan font-weight="800">RIGHT</tspan><tspan font-weight="300" dx="12">DIRECTION</tspan></text>
+  <rect x="154" y="88" width="34" height="4" rx="2" fill="#E0A526"/>
+  <text x="200" y="95" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="15" font-weight="600" letter-spacing="6" fill="#5B6B7C">CONSULTING</text>
+</svg>
