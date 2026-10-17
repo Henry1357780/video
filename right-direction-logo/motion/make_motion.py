@@ -1,13 +1,12 @@
 """Right Direction — моушн-ролик логотипа.
 
 Сценарий «Поиск верного курса» (9.5 с, 1920x1080, 60 fps):
-  0.00–1.55  Тёмная «карта»: сетка, компас, пыль. Синяя комета ищет курс —
+  0.00–1.55  Тёмная «карта»: сетка, компас, пыль. Синяя комета летит к цели —
              это летящая звезда с лучами, газовым хвостом и звёздной пылью.
-             Она влетает сверху слева, снижается, разворачивается и взмывает
-             по оси синего штриха — траектория-«галочка» ✓ — и «прорисовывает» его. Кольцо компаса доворачивает метку на этот курс.
-  1.55       Фиксация курса: вспышка, ударная волна, металлический «лок».
-  1.62–2.30  Белая волна света разворачивается из точки фиксации.
-  2.00–2.85  Три тёмно-синие грани «R» влетают по своим осям и встают на место.
+             Широкой плавной дугой она влетает сверху слева прямо в центр знака. Кольцо компаса доворачивает метку на этот курс.
+  1.55       Касание центра: вспышка, ударная волна, «лок».
+  1.62–2.30  Белая волна света разворачивается из точки касания.
+  1.66–2.60  Четыре грани «R» вырастают из центра и раскрываются в стороны.
   2.95–3.40  Блик пробегает по знаку.
   2.95–4.40  Камера отъезжает к полной композиции.
   3.45–3.85  Разделитель вырастает из центра.
@@ -47,7 +46,8 @@ def W(x, y): return ((x + MX) * S, (y + MY) * S)
 # ---------------------------------------------------------------- timeline
 T_C0, T_LOCK = 0.35, 1.55
 T_W0, T_W1 = 1.62, 2.30
-PIECES = [('left', 2.00, .45), ('leg', 2.15, .45), ('top', 2.30, .55)]
+PIECES = [('blue', 1.66, .62), ('left', 1.74, .62), ('leg', 1.82, .62), ('top', 1.90, .68)]   # раскрытие из центра
+PIECE_ROT = {'blue': -28, 'left': 22, 'leg': -18, 'top': 14}
 T_GLEAM = (2.95, .45)
 T_PULL = (2.95, 1.45)
 T_DIV = (3.45, .40)
@@ -291,30 +291,25 @@ DUST = [dict(x=rng.uniform(-320, 960), y=rng.uniform(120, 900), r=rng.uniform(.8
         for _ in range(150)]
 
 # --- комета
-# Траектория-«галочка» ✓: комета влетает сверху слева, снижается вдоль левого
-# края, мягко разворачивается у начала синего штриха и взмывает по его оси.
+# Траектория: широкая плавная дуга из верхнего левого угла прямо в центр знака
+# «R» (HUB). В момент касания знак раскрывается из этой точки в стороны.
+HUB = np.array([298.0, 491.0])
 def _bez(p0, p1, p2, p3, n):
     u = np.linspace(0, 1, n)[:, None]
     return (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * p1 + 3 * (1 - u) * u * u * p2 + u ** 3 * p3
-_A = _bez(np.array([-430.0, 150.0]), np.array([-250.0, 560.0]), P0 - D * 180, P0, 3000)
-_B = P0 + D * np.linspace(0, LB, 400)[:, None]
-C_PATH = np.vstack([_A, _B[1:]])
+C_PATH = _bez(np.array([-520.0, 150.0]), np.array([-220.0, 135.0]), np.array([100.0, 290.0]), HUB, 3000)
 C_LEN = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(C_PATH, axis=0), axis=1))])
-C_LA, C_TOT = float(C_LEN[len(_A) - 1]), float(C_LEN[-1])
-C_DIR0 = (_A[1] - _A[0]) / np.linalg.norm(_A[1] - _A[0])
-C_V0 = C_TOT * .62 / (T_LOCK - T_C0)
-C_YTOP, C_YLOW = float(C_PATH[:, 1].min()), float(C_PATH[:, 1].max())
+C_TOT = float(C_LEN[-1])
+C_DIR0 = (C_PATH[1] - C_PATH[0]) / np.linalg.norm(C_PATH[1] - C_PATH[0])
+C_V0 = C_TOT * .7 / (T_LOCK - T_C0)
 def comet_L(t):
     if t < T_C0: return (t - T_C0) * C_V0
     u = prog(t, T_C0, T_LOCK - T_C0)
-    return C_TOT * (.62 * u + .38 * u * u)
+    return C_TOT * (.7 * u + .3 * u * u)
 def cpos(t):
     Lc = comet_L(t)
-    if Lc <= 0: return _A[0] + C_DIR0 * Lc
+    if Lc <= 0: return C_PATH[0] + C_DIR0 * Lc
     return np.array([np.interp(Lc, C_LEN, C_PATH[:, 0]), np.interp(Lc, C_LEN, C_PATH[:, 1])])
-def comet_s(t):
-    """Сколько синего штриха уже прорисовано (по его оси)."""
-    return comet_L(t) - C_LA
 # Мерцание звезды-ядра: моменты вспышек лучей (под них звенят «звёздные» ноты)
 TWINKLES = [.62, .86, 1.08, 1.28]
 
@@ -426,7 +421,7 @@ def camera(t):
     c = c * (1 - u) + FINAL_C * u
     z *= 1 + .03 * e_out_cubic(prog(t, T_HIT, DUR - T_HIT))
     sh = np.zeros(2)
-    for amp, ti in [(2.6, IMPACTS[0][1]), (2.6, IMPACTS[1][1]), (3.4, IMPACTS[2][1]), (2.0, T_LOCK), (1.4, T_HIT)]:
+    for amp, ti in [(1.4, x[1]) for x in IMPACTS] + [(3.4, T_LOCK), (1.4, T_HIT)]:
         if t > ti:
             k = math.exp(-(t - ti) * 11) * amp
             sh += k * np.array([math.sin((t - ti) * 71), math.cos((t - ti) * 57)])
@@ -460,7 +455,7 @@ def render(t):
         if t >= T_W0:
             Rw = 1800 * prog(t, T_W0, T_W1 - T_W0) ** 1.7
             mk = Image.new('L', (WW, WH), 0)
-            cx_, cy_ = W(*TIP); rr = Rw * S
+            cx_, cy_ = W(*HUB); rr = Rw * S
             ImageDraw.Draw(mk).ellipse((cx_ - rr, cy_ - rr, cx_ + rr, cy_ + rr), fill=255)
             cv = Image.composite(light_now(t), cv, mk)
     else:
@@ -516,26 +511,20 @@ def render(t):
     if t >= T_STATIC:
         comp(cv, STATIC, SB[0], SB[1])
     else:
-        if t >= T_C0:
-            clip = clip_axis(comet_s(t)) if t < T_LOCK else None
-            gop = prog(t, .9, .5) * (1 - prog(t, T_W0, .7))
-            if gop > 0: place(cv, BLUE_GLOW, op=gop, clip=clip)
-            place(cv, L['blue'], clip=clip)
         for name, t0, dur in PIECES:
+            # грань вырастает из точки касания и раскрывается на своё место
             def tf(tt_):
-                u = prog(tt_, t0, dur); e = e_out_back(u)
-                if name == 'left': off = -D_LEFT * 380 * (1 - e); rot = 0
-                elif name == 'leg': off = D_LEG * 380 * (1 - e); rot = 0
-                else: off = np.array([0, -380 * (1 - e)]); rot = -10 * (1 - e)
-                return u, off, rot
-            u, off, rot = tf(t)
+                u = prog(tt_, t0, dur); e = e_out_back(u, 1.3)
+                ctr = np.array([L[name]['cx'], L[name]['cy']])
+                off = (HUB - ctr) * (1 - e)
+                return u, off, PIECE_ROT[name] * (1 - e), lerp(.12, 1, min(1.06, e))
+            u, off, rot, sc = tf(t)
             if u <= 0: continue
-            if u < .7:
+            if u < .6:
                 for k in (3, 2, 1):
-                    tk = t - k * .022
-                    uk, offk, rotk = tf(tk)
-                    if uk > 0: place(cv, L[name], offk[0], offk[1], rot=rotk, op=.28 / k)
-            place(cv, L[name], off[0], off[1], rot=rot, op=clamp(u * 6))
+                    uk, offk, rotk, sck = tf(t - k * .02)
+                    if uk > 0: place(cv, L[name], offk[0], offk[1], sc=sck, rot=rotk, op=.25 / k)
+            place(cv, L[name], off[0], off[1], sc=sc, rot=rot, op=clamp(u * 7))
         u = prog(t, *T_DIV)
         if u > 0:
             e = e_out_cubic(u); y0, y1 = L['div']['y0'], L['div']['y1']; mid = (y0 + y1) / 2; half = (y1 - y0) / 2 * e
@@ -574,14 +563,14 @@ def render(t):
         a0, a1 = urange(R_ALL); gleam(cv, R_ALL, lerp(a0 - 120, a1 + 120, e_inout_cubic(u)), 60, .42)
     if T_LOCK - .03 <= t < T_LOCK + .8:
         k = math.exp(-max(0, t - T_LOCK) / .14) if t >= T_LOCK else (t - T_LOCK + .03) / .03
-        put_sprite(cv, FLASH, TIP[0], TIP[1], .6 + .9 * k, k)
-        put_sprite(cv, CORE, TIP[0], TIP[1], 2.5 * k, k)
+        put_sprite(cv, FLASH, HUB[0], HUB[1], .6 + 1.1 * k, k)
+        put_sprite(cv, CORE, HUB[0], HUB[1], 3.0 * k, k)
         u = prog(t, T_LOCK, .65)
-        r = (15 + 420 * e_out_cubic(u)) * S; x, y = W(*TIP)
+        r = (15 + 420 * e_out_cubic(u)) * S; x, y = W(*HUB)
         dr.ellipse((x - r, y - r, x + r, y + r), outline=(120, 190, 255, int(230 * (1 - u))), width=max(1, int(3 * S * (1 - u)) + 1))
     if T_W0 <= t < T_W1 + .1:
         u = prog(t, T_W0, T_W1 - T_W0)
-        r = 1800 * u ** 1.7 * S; x, y = W(*TIP)
+        r = 1800 * u ** 1.7 * S; x, y = W(*HUB)
         dr.ellipse((x - r, y - r, x + r, y + r), outline=(47, 139, 255, int(220 * (1 - u))), width=int(5 * S))
     if T_HIT <= t < T_HIT + 1.4:
         u = prog(t, T_HIT, .8)
@@ -663,10 +652,7 @@ def synth_audio(path):
 
     # 2. Комета: свист, следующий за скоростью и позицией
     d = T_LOCK - T_C0 + .05; t = tt(d); u = np.clip(t / (T_LOCK - T_C0), 0, 1)
-    # высота тона следует за высотой кометы: вниз — опускается, на взлёте растёт
-    ys_ = np.array([cpos(T_C0 + x)[1] for x in t[::480]])
-    hgt = np.interp(np.arange(len(t)), np.arange(len(ys_)) * 480, (C_YLOW - ys_) / (C_YLOW - C_YTOP))
-    f = 240 * 9 ** hgt * (1 + 1.4 * u ** 3)
+    f = 280 * 9 ** (u ** 1.5)                    # приближение: свист плавно растёт к касанию
     envw = np.clip(t / .25, 0, 1) * (.55 + .45 * u ** 1.5) * np.clip((d - t) / .05, 0, 1)
     wh = svf(noise(d), f, 1.8) * envw
     pans = np.array([pan_of(cpos(T_C0 + x)[0], T_C0 + x) for x in t[::480]])
@@ -686,7 +672,7 @@ def synth_audio(path):
     add(dust * (np.clip(t / .3, 0, 1) * np.clip((d - t) / .1, 0, 1) * (.6 + .4 * np.sin(2 * np.pi * 9 * t) ** 2))[:, None], T_C0, gain=.035, rev=.5)
 
     # 4. Фиксация курса
-    tl = T_LOCK; p = pan_of(TIP[0], tl)
+    tl = T_LOCK; p = pan_of(HUB[0], tl)
     n = noise(.008); add(np.diff(n, prepend=0) * np.exp(-tt(.008) / .002), tl, p, .5, .2)
     add(np.sin(2 * np.pi * 2600 * tt(.05)) * np.exp(-tt(.05) / .01), tl, p, .22, .3)
     add(sweep(190, 42, .6) * np.exp(-tt(.6) / .17) * att(int(.6 * SR), .001), tl, 0, .95, .15)
@@ -697,7 +683,7 @@ def synth_audio(path):
     add(whoomp * (np.clip(t / .06, 0, 1) * np.exp(-t / .35))[:, None], T_W0 - .02, gain=.45, rev=.4)
 
     # 5. Грани «R»: свист + удар + тон
-    for (name, ti), fr in zip(IMPACTS, [261.63, 329.63, 392.0]):
+    for (name, ti), fr in zip(IMPACTS, [261.63, 329.63, 392.0, 523.25]):
         p = pan_of(L[name]['cx'], ti)
         d = .22; t = tt(d)
         add(svf(noise(d), 700 * (6 ** (t / d)), 1.5) * (t / d) ** 2, ti - d, p, .28, .2)
