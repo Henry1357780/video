@@ -3,8 +3,8 @@
 Сценарий «Поиск верного курса» (9.5 с, 1920x1080, 60 fps):
   0.00–1.55  Тёмная «карта»: сетка, компас, пыль. Синяя комета ищет курс —
              это летящая звезда с лучами, газовым хвостом и звёздной пылью.
-             Она влетает слева и плавной дугой ложится точно на ось синего
-             штриха, который «прорисовывает». Кольцо компаса доворачивает метку на этот курс.
+             Она влетает сверху слева, снижается, разворачивается и взмывает
+             по оси синего штриха — траектория-«галочка» ✓ — и «прорисовывает» его. Кольцо компаса доворачивает метку на этот курс.
   1.55       Фиксация курса: вспышка, ударная волна, металлический «лок».
   1.62–2.30  Белая волна света разворачивается из точки фиксации.
   2.00–2.85  Три тёмно-синие грани «R» влетают по своим осям и встают на место.
@@ -291,14 +291,30 @@ DUST = [dict(x=rng.uniform(-320, 960), y=rng.uniform(120, 900), r=rng.uniform(.8
         for _ in range(150)]
 
 # --- комета
-# Плавная дуга: комета входит почти горизонтально слева и мягко
-# доворачивает на ось синего штриха (курс), без колебаний.
-C_S0, C_ARC = -450, 380
-def comet_s(t):
+# Траектория-«галочка» ✓: комета влетает сверху слева, снижается вдоль левого
+# края, мягко разворачивается у начала синего штриха и взмывает по его оси.
+def _bez(p0, p1, p2, p3, n):
+    u = np.linspace(0, 1, n)[:, None]
+    return (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * p1 + 3 * (1 - u) * u * u * p2 + u ** 3 * p3
+_A = _bez(np.array([-430.0, 150.0]), np.array([-250.0, 560.0]), P0 - D * 180, P0, 3000)
+_B = P0 + D * np.linspace(0, LB, 400)[:, None]
+C_PATH = np.vstack([_A, _B[1:]])
+C_LEN = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(C_PATH, axis=0), axis=1))])
+C_LA, C_TOT = float(C_LEN[len(_A) - 1]), float(C_LEN[-1])
+C_DIR0 = (_A[1] - _A[0]) / np.linalg.norm(_A[1] - _A[0])
+C_V0 = C_TOT * .62 / (T_LOCK - T_C0)
+C_YTOP, C_YLOW = float(C_PATH[:, 1].min()), float(C_PATH[:, 1].max())
+def comet_L(t):
+    if t < T_C0: return (t - T_C0) * C_V0
     u = prog(t, T_C0, T_LOCK - T_C0)
-    return C_S0 + (LB - C_S0) * (.5 * u + .5 * u * u)
-def comet_pos(s):
-    return P0 + D * s - NRM * C_ARC * clamp(-s / -C_S0) ** 2
+    return C_TOT * (.62 * u + .38 * u * u)
+def cpos(t):
+    Lc = comet_L(t)
+    if Lc <= 0: return _A[0] + C_DIR0 * Lc
+    return np.array([np.interp(Lc, C_LEN, C_PATH[:, 0]), np.interp(Lc, C_LEN, C_PATH[:, 1])])
+def comet_s(t):
+    """Сколько синего штриха уже прорисовано (по его оси)."""
+    return comet_L(t) - C_LA
 # Мерцание звезды-ядра: моменты вспышек лучей (под них звенят «звёздные» ноты)
 TWINKLES = [.62, .86, 1.08, 1.28]
 
@@ -322,9 +338,8 @@ COMA = sprite(170, (110, 180, 255), 48)
 _crng = np.random.default_rng(11)
 DUSTTRAIL = []
 for te in np.arange(T_C0, T_LOCK, .009):
-    s0 = comet_s(te)
-    p = comet_pos(s0)
-    v = comet_pos(s0 + 1) - p
+    p = cpos(te)
+    v = cpos(te + .004) - p
     v /= np.linalg.norm(v) + 1e-9
     perp = np.array([-v[1], v[0]])
     DUSTTRAIL.append(dict(t0=te, p=p + perp * _crng.normal(0, 7),
@@ -405,7 +420,7 @@ for Ly in CONS:
 def camera(t):
     u0 = e_inout_cubic(prog(t, 0, T_PULL[0]))
     z = lerp(1.62, 1.80, u0)
-    c = MARK_C + np.array([lerp(-80, 0, u0), lerp(110, 0, u0)])
+    c = MARK_C + np.array([lerp(-60, 0, u0), lerp(40, 0, u0)])
     u = e_inout_cubic(prog(t, *T_PULL))
     z = math.exp(lerp(math.log(z), math.log(1.12), u))
     c = c * (1 - u) + FINAL_C * u
@@ -458,7 +473,7 @@ def render(t):
         fade = 1 - prog(t, T_LOCK, .3)
         # хвост: по пути за последние 0.45 с — газовый шлейф, расширяющийся к голове
         taus = np.linspace(tc - .62, tc, 80)
-        pts_ = [W(*comet_pos(comet_s(x) if x >= T_C0 else C_S0 - (T_C0 - x) * 330)) for x in taus]
+        pts_ = [W(*cpos(x)) for x in taus]
         xs_ = [p[0] for p in pts_]; ys_ = [p[1] for p in pts_]
         bx0, by0 = int(min(xs_)) - 120, int(min(ys_)) - 120
         bx1, by1 = int(max(xs_)) + 120, int(max(ys_)) + 120
@@ -488,7 +503,7 @@ def render(t):
                 dr.ellipse((x - r, y - r, x + r, y + r), fill=p['c'] + (int(230 * (1 - a_ / p['life']) ** 1.5 * fade),))
         # голова: кома, ядро и мерцающие лучи звезды
         if t < T_LOCK:
-            hp = comet_pos(comet_s(t))
+            hp = cpos(t)
             tw = 1 + sum(.9 * math.exp(-((t - x) / .05) ** 2) for x in TWINKLES)
             tw *= .9 + .1 * math.sin(t * 37)
             put_sprite(cv, COMA, hp[0], hp[1], 1.0, .75)
@@ -648,17 +663,21 @@ def synth_audio(path):
 
     # 2. Комета: свист, следующий за скоростью и позицией
     d = T_LOCK - T_C0 + .05; t = tt(d); u = np.clip(t / (T_LOCK - T_C0), 0, 1)
-    f = 260 * (14 ** (u ** 1.6))
-    wh = svf(noise(d), f, 1.8) * (u ** 1.1) * np.clip((d - t) / .05, 0, 1)
-    pans = np.array([pan_of(comet_pos(comet_s(T_C0 + x))[0], T_C0 + x) for x in t[::480]])
+    # высота тона следует за высотой кометы: вниз — опускается, на взлёте растёт
+    ys_ = np.array([cpos(T_C0 + x)[1] for x in t[::480]])
+    hgt = np.interp(np.arange(len(t)), np.arange(len(ys_)) * 480, (C_YLOW - ys_) / (C_YLOW - C_YTOP))
+    f = 240 * 9 ** hgt * (1 + 1.4 * u ** 3)
+    envw = np.clip(t / .25, 0, 1) * (.55 + .45 * u ** 1.5) * np.clip((d - t) / .05, 0, 1)
+    wh = svf(noise(d), f, 1.8) * envw
+    pans = np.array([pan_of(cpos(T_C0 + x)[0], T_C0 + x) for x in t[::480]])
     pan = np.interp(np.arange(len(t)), np.arange(len(pans)) * 480, pans)
     add(wh, T_C0, pan=pan, gain=.42, rev=.3)
-    tone = sweep(180, 900, d) * (u ** 2) * np.clip((d - t) / .05, 0, 1)
+    tone = np.sin(2 * np.pi * np.cumsum(f / 2.5) / SR) * envw * u ** 1.5
     add(tone, T_C0, pan=pan, gain=.05, rev=.4)
 
     # 3. Мерцание звезды-кометы: «звёздные» ноты ми-соль-ля-до
     for tp, fr in zip(TWINKLES, [1318.51, 1567.98, 1760.0, 2093.0]):
-        pp = comet_pos(comet_s(tp))
+        pp = cpos(tp)
         add(bell(fr, 1.6, tau=.6), tp, pan=pan_of(pp[0], tp), gain=.13, rev=.75)
         add(bell(fr * 2, .5, tau=.15), tp + .004, pan=pan_of(pp[0], tp), gain=.03, rev=.75)
     # шелест звёздной пыли за хвостом
