@@ -2,9 +2,9 @@
 
 Сценарий «Поиск верного курса» (9.5 с, 1920x1080, 60 fps):
   0.00–1.55  Тёмная «карта»: сетка, компас, пыль. Синяя комета ищет курс —
-             её траектория колеблется (пинги сонара на каждом гребне) и
-             затухает, выстраиваясь точно по оси синего штриха, который она
-             «прорисовывает». Кольцо компаса доворачивает метку на этот курс.
+             это летящая звезда с лучами, газовым хвостом и звёздной пылью.
+             Она влетает слева и плавной дугой ложится точно на ось синего
+             штриха, который «прорисовывает». Кольцо компаса доворачивает метку на этот курс.
   1.55       Фиксация курса: вспышка, ударная волна, металлический «лок».
   1.62–2.30  Белая волна света разворачивается из точки фиксации.
   2.00–2.85  Три тёмно-синие грани «R» влетают по своим осям и встают на место.
@@ -15,7 +15,7 @@
   4.55–5.30  CONSULTING «раздвигает» трекинг.
   5.35–6.40  STRATEGY / TRANSFORMATION / RESULTS поднимаются по нотам до-ми-соль.
   6.30–6.60  Импульс света бежит по синему штриху к острию.
-  6.60       Финальный аккорд, искры по направлению стрелки, общий блик.
+  6.60       Финальный до-мажорный аккорд, искры по направлению стрелки, общий блик.
   6.60–9.50  Удержание, лёгкий наезд камеры.
 
 Запуск:  py -3.12 make_motion.py <logo.png> <out_dir> [video|audio|stills t1,t2,...]
@@ -291,21 +291,46 @@ DUST = [dict(x=rng.uniform(-320, 960), y=rng.uniform(120, 900), r=rng.uniform(.8
         for _ in range(150)]
 
 # --- комета
+# Плавная дуга: комета входит почти горизонтально слева и мягко
+# доворачивает на ось синего штриха (курс), без колебаний.
+C_S0, C_ARC = -450, 380
 def comet_s(t):
     u = prog(t, T_C0, T_LOCK - T_C0)
-    return -430 + (430 + LB) * (.45 * u + .55 * u * u)
+    return C_S0 + (LB - C_S0) * (.5 * u + .5 * u * u)
 def comet_pos(s):
-    A = 115 * clamp(-s / 430) ** 1.2
-    lat = A * math.sin(2 * math.pi * (s + 430) / 200)
-    return P0 + D * s + NRM * lat
-def t_of_s(s):
-    lo, hi = T_C0, T_LOCK
-    for _ in range(50):
-        mid = (lo + hi) / 2
-        if comet_s(mid) < s: lo = mid
-        else: hi = mid
-    return lo
-PINGS = [(t_of_s(sk), comet_pos(sk)) for sk in [-380, -280, -180, -80]]
+    return P0 + D * s - NRM * C_ARC * clamp(-s / -C_S0) ** 2
+# Мерцание звезды-ядра: моменты вспышек лучей (под них звенят «звёздные» ноты)
+TWINKLES = [.62, .86, 1.08, 1.28]
+
+def make_spikes(n=360, ln=170, w=2.2):
+    """4 луча дифракции + 4 коротких диагональных, как у яркой звезды."""
+    y, x = np.mgrid[0:n, 0:n] - n / 2 + .5
+    r = np.sqrt(x * x + y * y) + 1e-6
+    fall = np.clip(1 - r / ln, 0, 1) ** 1.6
+    a = (np.exp(-(y / w) ** 2) + np.exp(-(x / w) ** 2)) * fall
+    xd, yd = (x + y) / 1.414, (x - y) / 1.414
+    fall2 = np.clip(1 - r / (ln * .45), 0, 1) ** 2
+    a += .45 * (np.exp(-(yd / (w * .8)) ** 2) + np.exp(-(xd / (w * .8)) ** 2)) * fall2
+    arr = np.zeros((n, n, 4), np.uint8)
+    arr[..., :3] = (225, 238, 255)
+    arr[..., 3] = (np.clip(a, 0, 1) * 255).astype(np.uint8)
+    return Image.fromarray(arr, 'RGBA')
+SPIKES = make_spikes()
+COMA = sprite(170, (110, 180, 255), 48)
+
+# Звёздная пыль, которую комета роняет за собой
+_crng = np.random.default_rng(11)
+DUSTTRAIL = []
+for te in np.arange(T_C0, T_LOCK, .009):
+    s0 = comet_s(te)
+    p = comet_pos(s0)
+    v = comet_pos(s0 + 1) - p
+    v /= np.linalg.norm(v) + 1e-9
+    perp = np.array([-v[1], v[0]])
+    DUSTTRAIL.append(dict(t0=te, p=p + perp * _crng.normal(0, 7),
+                          v=-v * _crng.uniform(20, 70) + perp * _crng.normal(0, 22),
+                          life=_crng.uniform(.35, .8), r=_crng.uniform(.7, 2.0),
+                          c=[(200, 225, 255), (120, 185, 255), (255, 255, 255)][_crng.integers(0, 3)]))
 
 # --- искры финала
 SPARKS = []
@@ -431,36 +456,46 @@ def render(t):
     if T_C0 <= t < T_LOCK + .35:
         tc = min(t, T_LOCK)
         fade = 1 - prog(t, T_LOCK, .3)
-        taus = np.linspace(max(T_C0, tc - .75), tc, 60)
-        pts_ = [W(*comet_pos(comet_s(x))) for x in taus]
+        # хвост: по пути за последние 0.45 с — газовый шлейф, расширяющийся к голове
+        taus = np.linspace(tc - .62, tc, 80)
+        pts_ = [W(*comet_pos(comet_s(x) if x >= T_C0 else C_S0 - (T_C0 - x) * 330)) for x in taus]
         xs_ = [p[0] for p in pts_]; ys_ = [p[1] for p in pts_]
-        bx0, by0 = int(min(xs_)) - 80, int(min(ys_)) - 80
-        bx1, by1 = int(max(xs_)) + 80, int(max(ys_)) + 80
+        bx0, by0 = int(min(xs_)) - 120, int(min(ys_)) - 120
+        bx1, by1 = int(max(xs_)) + 120, int(max(ys_)) + 120
         tile = Image.new('RGBA', (bx1 - bx0, by1 - by0), (0, 0, 0, 0))
         td = ImageDraw.Draw(tile, 'RGBA')
         n = len(pts_)
-        for i in range(1, n):
+        for i in range(n):
             k = i / (n - 1)
-            td.line((pts_[i - 1][0] - bx0, pts_[i - 1][1] - by0, pts_[i][0] - bx0, pts_[i][1] - by0),
-                    fill=(70, 160, 255, int(255 * k ** 1.5 * fade)), width=max(1, int((2 + 9 * k) * S)))
-        glow = tile.filter(ImageFilter.GaussianBlur(12))
-        comp(cv, glow, bx0, by0); comp(cv, glow, bx0, by0)
+            r = (2 + 24 * k ** .9) * S
+            c_ = (int(lerp(30, 150, k)), int(lerp(90, 205, k)), 255, int(95 * k ** 1.6 * fade))
+            x, y = pts_[i][0] - bx0, pts_[i][1] - by0
+            td.ellipse((x - r, y - r, x + r, y + r), fill=c_)
+        comp(cv, tile.filter(ImageFilter.GaussianBlur(10)), bx0, by0)
+        comp(cv, tile.filter(ImageFilter.GaussianBlur(26)), bx0, by0)
         core = Image.new('RGBA', tile.size, (0, 0, 0, 0)); cd = ImageDraw.Draw(core, 'RGBA')
-        for i in range(1, n):
-            k = i / (n - 1)
+        for i in range(n // 2, n):
+            k = (i - n // 2) / (n - n // 2 - 1)
             cd.line((pts_[i - 1][0] - bx0, pts_[i - 1][1] - by0, pts_[i][0] - bx0, pts_[i][1] - by0),
-                    fill=(215, 235, 255, int(230 * k ** 2 * fade)), width=max(1, int((.8 + 3.2 * k) * S)))
-        comp(cv, core, bx0, by0)
+                    fill=(230, 242, 255, int(200 * k ** 2.2 * fade)), width=max(1, int((.6 + 3.4 * k) * S)))
+        comp(cv, core.filter(ImageFilter.GaussianBlur(1.5)), bx0, by0)
+        # пыль, осыпающаяся с хвоста
+        for p in DUSTTRAIL:
+            a_ = t - p['t0']
+            if 0 <= a_ < p['life']:
+                q = p['p'] + p['v'] * a_
+                x, y = W(*q); r = p['r'] * S * (1 - .5 * a_ / p['life'])
+                dr.ellipse((x - r, y - r, x + r, y + r), fill=p['c'] + (int(230 * (1 - a_ / p['life']) ** 1.5 * fade),))
+        # голова: кома, ядро и мерцающие лучи звезды
         if t < T_LOCK:
             hp = comet_pos(comet_s(t))
-            put_sprite(cv, GLOW, hp[0], hp[1], 1.0, .9)
-            put_sprite(cv, CORE, hp[0], hp[1], 1.0, 1)
-    for tp, pp in PINGS:
-        if tp <= t < tp + .7:
-            u = (t - tp) / .7
-            r = (8 + 80 * e_out_cubic(u)) * S
-            x, y = W(*pp)
-            dr.ellipse((x - r, y - r, x + r, y + r), outline=(110, 180, 255, int(200 * (1 - u))), width=max(1, int(2 * S * (1 - u) + 1)))
+            tw = 1 + sum(.9 * math.exp(-((t - x) / .05) ** 2) for x in TWINKLES)
+            tw *= .9 + .1 * math.sin(t * 37)
+            put_sprite(cv, COMA, hp[0], hp[1], 1.0, .75)
+            put_sprite(cv, GLOW, hp[0], hp[1], .7, 1)
+            spk = SPIKES.rotate(12 + t * 20, Image.BICUBIC)
+            put_sprite(cv, spk, hp[0], hp[1], .55 * tw, min(1, .55 * tw))
+            put_sprite(cv, CORE, hp[0], hp[1], 1.1, 1)
 
     # СЛОИ
     if t >= T_STATIC:
@@ -574,17 +609,19 @@ def sweep(f0, f1, d, phase=0.0):
     return np.sin(2 * np.pi * np.cumsum(f) / SR + phase)
 def att(n, a=.002):
     k = max(1, int(a * SR)); e = np.ones(n); e[:k] = np.linspace(0, 1, k); return e
-def bell(f, d, tau=1.0, partials=((1, 1, 1), (2.0, .35, .5), (3.01, .18, .3), (5.4, .06, .15))):
+def bell(f, d, tau=1.0, partials=((1, 1, 1), (2.0, .3, .5), (3.0, .12, .3), (4.0, .05, .2))):
     t = tt(d); s = np.zeros_like(t)
     for r, g, tf in partials: s += g * np.sin(2 * np.pi * f * r * t) * np.exp(-t / (tau * tf))
     return s * att(len(t))
-def fm_bell(f, d, tau=1.5, idx=1.6, ratio=1.4):
+def fm_bell(f, d, tau=1.5, idx=1.0, ratio=2.0):
     t = tt(d)
     return np.sin(2 * np.pi * f * t + idx * np.exp(-t / (tau * .3)) * np.sin(2 * np.pi * f * ratio * t)) * np.exp(-t / tau) * att(len(t), .003)
 def marimba(f, d=.9):
     t = tt(d)
     return (np.sin(2 * np.pi * f * t) * np.exp(-t / .28) + .35 * np.sin(2 * np.pi * f * 3.93 * t) * np.exp(-t / .05)
             + .15 * np.sin(2 * np.pi * f * 9.2 * t) * np.exp(-t / .015)) * att(len(t), .001)
+
+PENTA = [2093.0, 2349.32, 2637.02, 3135.96, 3520.0, 4186.01, 4698.63, 5274.04]   # до-мажорная пентатоника
 
 def synth_audio(path):
     dry = np.zeros((NS, 2)); wet = np.zeros((NS, 2))
@@ -602,8 +639,9 @@ def synth_audio(path):
     d = 2.9; t = tt(d)
     env = np.clip(t / 1.0, 0, 1) ** 2 * np.clip((2.75 - t) / .55, 0, 1)
     lfo = .75 + .25 * np.sin(2 * np.pi * .55 * t)
-    padL = sum(g * np.sin(2 * np.pi * f * t) for f, g in [(55, .5), (82.41, .32), (110, .22), (164.8, .1), (220.6, .05)])
-    padR = sum(g * np.sin(2 * np.pi * f * 1.004 * t + .7) for f, g in [(55, .5), (82.41, .32), (110, .22), (164.8, .1), (220.6, .05)])
+    DRONE = [(65.41, .5), (98.0, .32), (130.81, .22), (196.0, .1), (261.63, .04)]   # до + соль
+    padL = sum(g * np.sin(2 * np.pi * f * t) for f, g in DRONE)
+    padR = sum(g * np.sin(2 * np.pi * f * 1.003 * t + .7) for f, g in DRONE)
     add(np.stack([padL, padR], 1) * (env * lfo)[:, None], 0, gain=.22, rev=.35)
     wind = np.stack([svf(noise(d), 380 + 180 * np.sin(2 * np.pi * .3 * t), 1.2), svf(noise(d), 420 + 160 * np.cos(2 * np.pi * .27 * t), 1.2)], 1)
     add(wind * env[:, None], 0, gain=.10, rev=.3)
@@ -618,17 +656,22 @@ def synth_audio(path):
     tone = sweep(180, 900, d) * (u ** 2) * np.clip((d - t) / .05, 0, 1)
     add(tone, T_C0, pan=pan, gain=.05, rev=.4)
 
-    # 3. Пинги сонара на гребнях траектории
-    for (tp, pp), fr in zip(PINGS, [659.26, 783.99, 880.0, 1046.5]):
-        add(bell(fr, 1.4, tau=.55), tp, pan=pan_of(pp[0], tp), gain=.20, rev=.6)
-        add(bell(fr * 2, .4, tau=.12), tp, pan=pan_of(pp[0], tp), gain=.05, rev=.6)
+    # 3. Мерцание звезды-кометы: «звёздные» ноты ми-соль-ля-до
+    for tp, fr in zip(TWINKLES, [1318.51, 1567.98, 1760.0, 2093.0]):
+        pp = comet_pos(comet_s(tp))
+        add(bell(fr, 1.6, tau=.6), tp, pan=pan_of(pp[0], tp), gain=.13, rev=.75)
+        add(bell(fr * 2, .5, tau=.15), tp + .004, pan=pan_of(pp[0], tp), gain=.03, rev=.75)
+    # шелест звёздной пыли за хвостом
+    d = T_LOCK - T_C0; t = tt(d)
+    dust = np.stack([svf(noise(d), 6500, 1.0), svf(noise(d), 7000, 1.0)], 1)
+    add(dust * (np.clip(t / .3, 0, 1) * np.clip((d - t) / .1, 0, 1) * (.6 + .4 * np.sin(2 * np.pi * 9 * t) ** 2))[:, None], T_C0, gain=.035, rev=.5)
 
     # 4. Фиксация курса
     tl = T_LOCK; p = pan_of(TIP[0], tl)
     n = noise(.008); add(np.diff(n, prepend=0) * np.exp(-tt(.008) / .002), tl, p, .5, .2)
     add(np.sin(2 * np.pi * 2600 * tt(.05)) * np.exp(-tt(.05) / .01), tl, p, .22, .3)
     add(sweep(190, 42, .6) * np.exp(-tt(.6) / .17) * att(int(.6 * SR), .001), tl, 0, .95, .15)
-    add(bell(392, 2.2, tau=1.3, partials=((1, 1, 1), (2.76, .5, .7), (5.40, .3, .45), (8.93, .15, .25))), tl, p, .16, .7)
+    add(bell(392, 2.2, tau=1.3, partials=((1, 1, 1), (2.0, .45, .7), (3.0, .25, .45), (4.0, .12, .25))), tl, p, .16, .7)
     add(fm_bell(1567.98, 1.5, tau=.6), tl + .01, p, .08, .7)
     d = .9; t = tt(d)
     whoomp = np.stack([svf(noise(d), 2600 * (180 / 2600) ** (t / d), .9), svf(noise(d), 2400 * (170 / 2400) ** (t / d), .9)], 1)
@@ -647,7 +690,7 @@ def synth_audio(path):
     g0, gd = T_GLEAM
     for i in range(14):
         ti = g0 + gd * (i / 13) ** .9 + rng.uniform(-.01, .01)
-        add(np.sin(2 * np.pi * rng.uniform(4200, 9000) * tt(.12)) * np.exp(-tt(.12) / .025) * att(int(.12 * SR)), ti, lerp(-.6, .6, i / 13), .055, .6)
+        add(np.sin(2 * np.pi * rng.choice(PENTA) * tt(.12)) * np.exp(-tt(.12) / .025) * att(int(.12 * SR)), ti, lerp(-.6, .6, i / 13), .055, .6)
     t = tt(gd); add(sweep(1800, 4200, gd) * np.sin(np.pi * t / gd) ** 2, g0, 0, .03, .6)
 
     # 7. Отъезд камеры
@@ -687,17 +730,23 @@ def synth_audio(path):
 
     # 13. Финал: удар, аккорд, искры
     th = T_HIT
-    add(sweep(72, 36, 2.2) * np.exp(-tt(2.2) / .55) * att(int(2.2 * SR), .002), th, 0, .9, .1)
+    t = tt(2.6); fsub = 65.41 + 30 * np.exp(-t / .06)            # удар, оседающий точно в до
+    add(np.sin(2 * np.pi * np.cumsum(fsub) / SR) * np.exp(-t / .7) * att(len(t), .002), th, 0, .9, .1)
     add(svf(noise(.35), 260, .7) * np.exp(-tt(.35) / .07), th, 0, .6, .3)
     add(np.diff(noise(.01), prepend=0) * np.exp(-tt(.01) / .002), th, pan_of(TIP[0], th), .4, .3)
-    for f_, g, pn in [(65.41, .30, 0), (130.81, .22, -.1), (196.0, .14, .1)]:
-        add(np.sin(2 * np.pi * f_ * tt(3.0)) * np.exp(-tt(3.0) / 1.3) * att(int(3.0 * SR), .01), th, pn, g, .4)
-    for f_, g, pn, tau in [(261.63, .13, -.4, 2.4), (392.0, .12, .4, 2.2), (523.25, .12, -.2, 2.0),
-                           (659.26, .11, .25, 1.8), (987.77, .08, -.5, 1.5), (1174.66, .07, .5, 1.3)]:
-        add(fm_bell(f_, 2.9, tau=tau, idx=1.4), th + rng.uniform(0, .012), pn, g, .7)
+    # тёплое до-мажорное трезвучие: бас до-соль, середина до-ми-соль, сверху до
+    t = tt(2.9)
+    for f_, g, pn in [(65.41, .26, 0), (130.81, .20, -.1), (196.0, .12, .1)]:
+        tone = np.sin(2 * np.pi * f_ * t) + .25 * np.sin(4 * np.pi * f_ * t) + .08 * np.sin(6 * np.pi * f_ * t)
+        add(tone * np.exp(-t / 1.4) * att(len(t), .01), th, pn, g, .45)
+    for f_, g, pn, tau in [(261.63, .12, -.35, 2.2), (329.63, .10, .3, 2.0), (392.0, .10, -.15, 1.9),
+                           (523.25, .09, .2, 1.7), (1046.5, .035, 0, 1.2)]:
+        add(bell(f_, 2.9, tau=tau, partials=((1, 1, 1), (2.0, .35, .6), (3.0, .12, .35), (4.0, .05, .2))),
+            th + rng.uniform(0, .015), pn, g, .7)
+        add(fm_bell(f_, 2.9, tau=tau * .8, idx=.5), th, -pn, g * .35, .7)
     for sk in SPARKS:
         ti = th + sk['d'] + rng.uniform(0, .5) * sk['life']
-        add(np.sin(2 * np.pi * rng.uniform(3000, 9000) * tt(.1)) * np.exp(-tt(.1) / .02) * att(int(.1 * SR)), ti, rng.uniform(-.8, .8), .045, .7)
+        add(np.sin(2 * np.pi * rng.choice(PENTA) * tt(.1)) * np.exp(-tt(.1) / .02) * att(int(.1 * SR)), ti, rng.uniform(-.8, .8), .045, .7)
     g0, gd = T_GLINT; t = tt(gd)
     add(sweep(2500, 6000, gd) * np.sin(np.pi * t / gd) ** 2, g0, 0, .025, .7)
 
