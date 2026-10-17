@@ -29,7 +29,7 @@ os.makedirs(OUTDIR, exist_ok=True)
 
 FPS, DUR = 60, 9.5
 OW, OH = 1920, 1080
-S, MX, MY = 2, 380, 110                    # мир = (src + M) * S
+S, MX, MY = 2, 430, 110                    # мир = (src + M) * S
 rng = np.random.default_rng(7)
 
 # ---------------------------------------------------------------- easing
@@ -44,7 +44,7 @@ def e_out_back(u, c1=1.70158): return 1 + (c1 + 1) * (u - 1) ** 3 + c1 * (u - 1)
 def W(x, y): return ((x + MX) * S, (y + MY) * S)
 
 # ---------------------------------------------------------------- timeline
-T_C0, T_LOCK = 0.35, 1.55
+T_C0, T_LOCK = 0.10, 1.55
 T_W0, T_W1 = 1.62, 2.30
 PIECES = [('blue', 1.66, .62), ('left', 1.74, .62), ('leg', 1.82, .62), ('top', 1.90, .68)]   # раскрытие из центра
 PIECE_ROT = {'blue': -28, 'left': 22, 'leg': -18, 'top': 14}
@@ -297,7 +297,7 @@ HUB = np.array([298.0, 491.0])
 def _bez(p0, p1, p2, p3, n):
     u = np.linspace(0, 1, n)[:, None]
     return (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * p1 + 3 * (1 - u) * u * u * p2 + u ** 3 * p3
-C_PATH = _bez(np.array([-520.0, 150.0]), np.array([-220.0, 135.0]), np.array([100.0, 290.0]), HUB, 3000)
+C_PATH = _bez(np.array([-420.0, 245.0]), np.array([-150.0, 225.0]), np.array([110.0, 330.0]), HUB, 3000)
 C_LEN = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(C_PATH, axis=0), axis=1))])
 C_TOT = float(C_LEN[-1])
 C_DIR0 = (C_PATH[1] - C_PATH[0]) / np.linalg.norm(C_PATH[1] - C_PATH[0])
@@ -311,7 +311,7 @@ def cpos(t):
     if Lc <= 0: return C_PATH[0] + C_DIR0 * Lc
     return np.array([np.interp(Lc, C_LEN, C_PATH[:, 0]), np.interp(Lc, C_LEN, C_PATH[:, 1])])
 # Мерцание звезды-ядра: моменты вспышек лучей (под них звенят «звёздные» ноты)
-TWINKLES = [.62, .86, 1.08, 1.28]
+TWINKLES = [.42, .68, .92, 1.14, 1.34]
 
 def make_spikes(n=360, ln=170, w=2.2):
     """4 луча дифракции + 4 коротких диагональных, как у яркой звезды."""
@@ -415,7 +415,7 @@ for Ly in CONS:
 def camera(t):
     u0 = e_inout_cubic(prog(t, 0, T_PULL[0]))
     z = lerp(1.62, 1.80, u0)
-    c = MARK_C + np.array([lerp(-60, 0, u0), lerp(40, 0, u0)])
+    c = MARK_C + np.array([lerp(-90, 0, u0), lerp(0, 0, u0)])
     u = e_inout_cubic(prog(t, *T_PULL))
     z = math.exp(lerp(math.log(z), math.log(1.12), u))
     c = c * (1 - u) + FINAL_C * u
@@ -662,7 +662,7 @@ def synth_audio(path):
     add(tone, T_C0, pan=pan, gain=.05, rev=.4)
 
     # 3. Мерцание звезды-кометы: «звёздные» ноты ми-соль-ля-до
-    for tp, fr in zip(TWINKLES, [1318.51, 1567.98, 1760.0, 2093.0]):
+    for tp, fr in zip(TWINKLES, [1046.5, 1318.51, 1567.98, 1760.0, 2093.0]):
         pp = cpos(tp)
         add(bell(fr, 1.6, tau=.6), tp, pan=pan_of(pp[0], tp), gain=.13, rev=.75)
         add(bell(fr * 2, .5, tau=.15), tp + .004, pan=pan_of(pp[0], tp), gain=.03, rev=.75)
